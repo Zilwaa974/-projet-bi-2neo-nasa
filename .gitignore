@@ -1,0 +1,15 @@
+# Cles API / secrets locaux - jamais commites
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Fichiers Power BI / SSIS temporaires
+*.pbix.bak
+bin/
+obj/
+
+# donnees generees par le tableau de bord, pas versionnees
+exploration/data.json

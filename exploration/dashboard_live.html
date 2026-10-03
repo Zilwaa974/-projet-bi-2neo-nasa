@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEO — données en direct</title>
+<style>
+:root{
+  --bg:#faf8f4; --surface:#ffffff; --surface-2:#f1ede4; --border:#ddd6c7;
+  --fg:#241f18; --fg-muted:#6b6354; --accent:#9a5b1f; --accent-2:#2f6f5e; --danger:#b3432e;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#15130f; --surface:#1d1a14; --surface-2:#242019; --border:#3a3425;
+    --fg:#ece6d8; --fg-muted:#a89d87; --accent:#d9934a; --accent-2:#5fae97; --danger:#e2694f;
+  }
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--fg); font-family:system-ui, 'IBM Plex Sans', sans-serif;
+  margin:0; padding:16px; padding-block:32px; max-width:980px; margin-inline:auto; line-height:1.5;
+}
+h1{font-size:1.6rem; margin:0 0 4px}
+.lede{color:var(--fg-muted); margin:0 0 24px; max-width:60ch}
+.controls{
+  display:flex; flex-wrap:wrap; gap:12px; align-items:end; background:var(--surface);
+  border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:24px;
+}
+.field{display:flex; flex-direction:column; gap:4px; font-size:0.82rem}
+.field label{color:var(--fg-muted)}
+.field input{
+  font-family:inherit; font-size:0.9rem; padding:7px 9px; border:1px solid var(--border);
+  border-radius:6px; background:var(--surface-2); color:var(--fg);
+}
+button{
+  font-family:inherit; font-size:0.9rem; font-weight:600; padding:9px 18px; border-radius:6px;
+  border:none; background:var(--accent); color:#1a1208; cursor:pointer;
+}
+button:disabled{opacity:0.5; cursor:default}
+.status{font-size:0.85rem; color:var(--fg-muted); margin-bottom:16px; min-height:1.3em}
+.status.error{color:var(--danger)}
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:24px}
+.stat{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px}
+.stat .n{font-size:1.6rem; font-weight:600; font-family:'IBM Plex Mono', monospace}
+.stat .l{font-size:0.78rem; color:var(--fg-muted)}
+table{width:100%; border-collapse:collapse; font-size:0.85rem; background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden}
+th,td{padding:9px 12px; text-align:left; border-bottom:1px solid var(--border)}
+th{color:var(--fg-muted); font-weight:600; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.03em}
+tr:last-child td{border-bottom:none}
+td.mono,th.mono{font-family:'IBM Plex Mono', monospace}
+.pill{display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.72rem; font-family:'IBM Plex Mono',monospace}
+.pill.close{background:color-mix(in srgb, var(--danger) 18%, transparent); color:var(--danger)}
+.pill.normal{background:color-mix(in srgb, var(--accent-2) 15%, transparent); color:var(--accent-2)}
+.scroll{overflow-x:auto}
+footer{margin-top:28px; font-size:0.8rem; color:var(--fg-muted)}
+</style>
+</head>
+<body>
+  <h1>Survols NEO — données en direct</h1>
+  <p class="lede">Choisis une plage, le script Python relaie l'appel à l'API CAD derrière (pas de blocage CORS) et renvoie les résultats à jour.</p>
+
+  <div class="controls">
+    <div class="field">
+      <label for="dmin">Date min</label>
+      <input type="date" id="dmin">
+    </div>
+    <div class="field">
+      <label for="dmax">Date max</label>
+      <input type="date" id="dmax">
+    </div>
+    <div class="field">
+      <label for="distmax">Distance max (UA)</label>
+      <input type="number" id="distmax" value="0.05" step="0.01" style="width:80px">
+    </div>
+    <button id="loadBtn">Charger les données</button>
+  </div>
+
+  <p class="status" id="status">Prêt — choisis une plage et clique sur « Charger ».</p>
+
+  <div class="stats" id="stats" hidden>
+    <div class="stat"><div class="n" id="statCount">—</div><div class="l">survols trouvés</div></div>
+    <div class="stat"><div class="n" id="statClose">—</div><div class="l">à moins de 0.01 UA</div></div>
+    <div class="stat"><div class="n" id="statAvgV">—</div><div class="l">vitesse moy. (km/s)</div></div>
+    <div class="stat"><div class="n" id="statMinDist">—</div><div class="l">approche la plus proche (UA)</div></div>
+  </div>
+
+  <div class="scroll">
+    <table id="resultsTable" hidden>
+      <thead>
+        <tr><th>Désignation</th><th>Date du survol</th><th class="mono">Distance (UA)</th><th class="mono">Vitesse (km/s)</th><th class="mono">Magnitude (H)</th><th>Niveau</th></tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+
+  <footer>Source : ssd-api.jpl.nasa.gov/cad.api, appelée côté serveur par <code>launch_dashboard.py</code> via <code>/api/survols</code> (l'API n'autorise pas les appels directs depuis un navigateur). « Niveau : proche » = distance &lt; 0.01 UA, un seuil arbitraire à ajuster — pas une classification officielle de danger (CAD ne fournit pas de champ PHA, voir note du plan de projet).</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const loadBtn = $('loadBtn');
+
+function todayISO(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+$('dmin').value = todayISO(-30);
+$('dmax').value = todayISO(30);
+
+async function loadData() {
+  const dateMin = $('dmin').value;
+  const dateMax = $('dmax').value;
+  const distMax = $('distmax').value || '0.05';
+
+  if (!dateMin || !dateMax) {
+    statusEl.textContent = 'Renseigne les deux dates.';
+    statusEl.className = 'status error';
+    return;
+  }
+
+  loadBtn.disabled = true;
+  statusEl.className = 'status';
+  statusEl.textContent = 'Appel en cours (via le serveur local)…';
+  $('stats').hidden = true;
+  $('resultsTable').hidden = true;
+
+  const url = `/api/survols?date_min=${dateMin}&date_max=${dateMax}&dist_max=${distMax}`;
+
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    render(json);
+  } catch (err) {
+    statusEl.className = 'status error';
+    statusEl.textContent = `Échec : ${err.message}. Vérifie que "python launch_dashboard.py" tourne toujours dans le terminal.`;
+  } finally {
+    loadBtn.disabled = false;
+  }
+}
+
+function render(json) {
+  const rows = json.data || [];
+  const fields = json.fields || [];
+  const idx = (name) => fields.indexOf(name);
+
+  if (rows.length === 0) {
+    statusEl.textContent = `0 survol trouvé sur cette plage avec dist-max=${$('distmax').value} UA. Essaie une plage plus large.`;
+    return;
+  }
+
+  statusEl.textContent = `${rows.length} survol(s) chargé(s) le ${new Date().toLocaleString('fr-FR')}.`;
+
+  const iDes = idx('des'), iCd = idx('cd'), iDist = idx('dist'), iVrel = idx('v_rel'), iH = idx('h');
+
+  let closeCount = 0, totalV = 0, minDist = Infinity;
+  const tbody = $('resultsBody');
+  tbody.innerHTML = '';
+
+  // tri par distance croissante : les plus proches en premier
+  const sorted = [...rows].sort((a, b) => parseFloat(a[iDist]) - parseFloat(b[iDist]));
+
+  for (const r of sorted) {
+    const dist = parseFloat(r[iDist]);
+    const vrel = parseFloat(r[iVrel]);
+    totalV += vrel;
+    if (dist < minDist) minDist = dist;
+    const isClose = dist < 0.01;
+    if (isClose) closeCount++;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="mono">${r[iDes]}</td>
+      <td>${r[iCd]}</td>
+      <td class="mono">${dist.toFixed(5)}</td>
+      <td class="mono">${vrel.toFixed(2)}</td>
+      <td class="mono">${r[iH]}</td>
+      <td><span class="pill ${isClose ? 'close' : 'normal'}">${isClose ? 'proche' : 'normal'}</span></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  $('statCount').textContent = rows.length;
+  $('statClose').textContent = closeCount;
+  $('statAvgV').textContent = (totalV / rows.length).toFixed(1);
+  $('statMinDist').textContent = minDist.toFixed(5);
+  $('stats').hidden = false;
+  $('resultsTable').hidden = false;
+}
+
+loadBtn.addEventListener('click', loadData);
+// charge automatiquement a l'ouverture de la page
+loadData();
+</script>
+</body>
+</html>
