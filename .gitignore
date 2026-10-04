@@ -1,0 +1,32 @@
+# Données générées (trop lourd pour Git)
+*.csv
+
+# Dossiers SQL Server
+MSSQL*/
+
+# Clés API / secrets locaux
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Claude Code (paramètres locaux personnels)
+.claude/
+
+# Visual Studio
+.vs/
+*.user
+bin/
+obj/
+
+# Fichiers Power BI / SSIS temporaires
+*.pbix.bak
+
+# Données générées
+exploration/data.json
+
+# Windows
+Thumbs.db
+Desktop.ini
