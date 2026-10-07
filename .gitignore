@@ -1,15 +1,30 @@
 # Cles API / secrets locaux - jamais commites
 .env
+.venv/
+
+# Donnees generees (trop lourd pour Git)
+*.csv
+exploration/data.json
+
+# Dossiers SQL Server
+MSSQL*/
 
 # Python
 __pycache__/
 *.pyc
-.venv/
 
 # Fichiers Power BI / SSIS temporaires
 *.pbix.bak
 bin/
 obj/
 
-# donnees generees par le tableau de bord, pas versionnees
-exploration/data.json
+# Claude Code (parametres locaux personnels)
+.claude/
+
+# Visual Studio
+.vs/
+*.user
+
+# Windows
+Thumbs.db
+Desktop.ini
