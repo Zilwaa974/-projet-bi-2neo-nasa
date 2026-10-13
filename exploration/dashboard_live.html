@@ -24,11 +24,11 @@ h1{font-size:1.6rem; margin:0 0 4px}
 .lede{color:var(--fg-muted); margin:0 0 24px; max-width:60ch}
 .controls{
   display:flex; flex-wrap:wrap; gap:12px; align-items:end; background:var(--surface);
-  border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:24px;
+  border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:12px;
 }
 .field{display:flex; flex-direction:column; gap:4px; font-size:0.82rem}
 .field label{color:var(--fg-muted)}
-.field input{
+.field input, .field select{
   font-family:inherit; font-size:0.9rem; padding:7px 9px; border:1px solid var(--border);
   border-radius:6px; background:var(--surface-2); color:var(--fg);
 }
@@ -37,6 +37,7 @@ button{
   border:none; background:var(--accent); color:#1a1208; cursor:pointer;
 }
 button:disabled{opacity:0.5; cursor:default}
+.source-note{font-size:0.8rem; color:var(--fg-muted); margin:0 0 24px}
 .status{font-size:0.85rem; color:var(--fg-muted); margin-bottom:16px; min-height:1.3em}
 .status.error{color:var(--danger)}
 .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:24px}
@@ -51,15 +52,23 @@ td.mono,th.mono{font-family:'IBM Plex Mono', monospace}
 .pill{display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.72rem; font-family:'IBM Plex Mono',monospace}
 .pill.close{background:color-mix(in srgb, var(--danger) 18%, transparent); color:var(--danger)}
 .pill.normal{background:color-mix(in srgb, var(--accent-2) 15%, transparent); color:var(--accent-2)}
+.pill.source{background:color-mix(in srgb, var(--accent) 15%, transparent); color:var(--accent); margin-left:8px}
 .scroll{overflow-x:auto}
 footer{margin-top:28px; font-size:0.8rem; color:var(--fg-muted)}
 </style>
 </head>
 <body>
-  <h1>Survols NEO — données en direct</h1>
-  <p class="lede">Choisis une plage, le script Python relaie l'appel à l'API CAD derrière (pas de blocage CORS) et renvoie les résultats à jour.</p>
+  <h1>Survols NEO — données en direct ou historique</h1>
+  <p class="lede">Choisis une plage et une source, le serveur local renvoie les résultats à jour — en direct depuis l'API, ou depuis le fichier CSV déjà téléchargé.</p>
 
   <div class="controls">
+    <div class="field">
+      <label for="source">Source des données</label>
+      <select id="source">
+        <option value="api">API en direct (NASA JPL)</option>
+        <option value="csv">Fichier CSV local (historique 1990–2026)</option>
+      </select>
+    </div>
     <div class="field">
       <label for="dmin">Date min</label>
       <input type="date" id="dmin">
@@ -74,6 +83,7 @@ footer{margin-top:28px; font-size:0.8rem; color:var(--fg-muted)}
     </div>
     <button id="loadBtn">Charger les données</button>
   </div>
+  <p class="source-note" id="sourceNote">API : toujours à jour, a besoin d'internet, peut être lente sur une grande plage.</p>
 
   <p class="status" id="status">Prêt — choisis une plage et clique sur « Charger ».</p>
 
@@ -93,12 +103,19 @@ footer{margin-top:28px; font-size:0.8rem; color:var(--fg-muted)}
     </table>
   </div>
 
-  <footer>Source : ssd-api.jpl.nasa.gov/cad.api, appelée côté serveur par <code>launch_dashboard.py</code> via <code>/api/survols</code> (l'API n'autorise pas les appels directs depuis un navigateur). « Niveau : proche » = distance &lt; 0.01 UA, un seuil arbitraire à ajuster — pas une classification officielle de danger (CAD ne fournit pas de champ PHA, voir note du plan de projet).</footer>
+  <footer>Source API : ssd-api.jpl.nasa.gov/cad.api, appelée côté serveur par <code>launch_dashboard.py</code> via <code>/api/survols</code> (l'API n'autorise pas les appels directs depuis un navigateur). Source CSV : <code>neo_close_approaches.csv</code> à la racine du projet, généré par <code>fetch_neo.py</code> — mêmes champs que l'API, 1990 à 2026. « Niveau : proche » = distance &lt; 0.01 UA, un seuil arbitraire à ajuster — pas une classification officielle de danger (ni l'API ni le CSV ne fournissent de champ PHA, voir note du plan de projet).</footer>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 const loadBtn = $('loadBtn');
+const sourceEl = $('source');
+const sourceNoteEl = $('sourceNote');
+
+const SOURCE_NOTES = {
+  api: "API : toujours à jour, a besoin d'internet, peut être lente sur une grande plage.",
+  csv: "CSV : instantané, fonctionne sans internet, mais figé à l'export du fichier (voir date dans le footer du projet).",
+};
 
 function todayISO(offsetDays = 0) {
   const d = new Date();
@@ -108,7 +125,12 @@ function todayISO(offsetDays = 0) {
 $('dmin').value = todayISO(-30);
 $('dmax').value = todayISO(30);
 
+sourceEl.addEventListener('change', () => {
+  sourceNoteEl.textContent = SOURCE_NOTES[sourceEl.value] || '';
+});
+
 async function loadData() {
+  const source = sourceEl.value;
   const dateMin = $('dmin').value;
   const dateMax = $('dmax').value;
   const distMax = $('distmax').value || '0.05';
@@ -121,11 +143,13 @@ async function loadData() {
 
   loadBtn.disabled = true;
   statusEl.className = 'status';
-  statusEl.textContent = 'Appel en cours (via le serveur local)…';
+  statusEl.textContent = source === 'csv'
+    ? 'Lecture du CSV local…'
+    : 'Appel en cours (via le serveur local)…';
   $('stats').hidden = true;
   $('resultsTable').hidden = true;
 
-  const url = `/api/survols?date_min=${dateMin}&date_max=${dateMax}&dist_max=${distMax}`;
+  const url = `/api/survols?date_min=${dateMin}&date_max=${dateMax}&dist_max=${distMax}&source=${source}`;
 
   try {
     const res = await fetch(url, { cache: 'no-store' });
@@ -144,13 +168,14 @@ function render(json) {
   const rows = json.data || [];
   const fields = json.fields || [];
   const idx = (name) => fields.indexOf(name);
+  const sourceLabel = json.source === 'csv' ? 'CSV' : 'API';
 
   if (rows.length === 0) {
-    statusEl.textContent = `0 survol trouvé sur cette plage avec dist-max=${$('distmax').value} UA. Essaie une plage plus large.`;
+    statusEl.textContent = `0 survol trouvé (source ${sourceLabel}) sur cette plage avec dist-max=${$('distmax').value} UA. Essaie une plage plus large.`;
     return;
   }
 
-  statusEl.textContent = `${rows.length} survol(s) chargé(s) le ${new Date().toLocaleString('fr-FR')}.`;
+  statusEl.innerHTML = `${rows.length} survol(s) chargé(s) le ${new Date().toLocaleString('fr-FR')}. <span class="pill source">${sourceLabel}</span>`;
 
   const iDes = idx('des'), iCd = idx('cd'), iDist = idx('dist'), iVrel = idx('v_rel'), iH = idx('h');
 
@@ -190,7 +215,7 @@ function render(json) {
 }
 
 loadBtn.addEventListener('click', loadData);
-// charge automatiquement a l'ouverture de la page
+// charge automatiquement a l'ouverture de la page (source par defaut : API)
 loadData();
 </script>
 </body>
